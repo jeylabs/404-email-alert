@@ -9,8 +9,8 @@ spot broken links and suspicious scanning activity.
 
 ## Requirements
 
-* PHP `>= 7.1`
-* Laravel `>= 5.5`
+* PHP `>= 8.3`
+* Laravel `^13.6`
 
 ## Installation
 
@@ -21,12 +21,7 @@ composer require jeylabs/404-email-alert
 ```
 
 The service provider is registered automatically through Laravel package
-auto-discovery. On Laravel **5.4 or earlier**, add it manually to the
-`providers` array in `config/app.php`:
-
-```php
-Jeylabs\PageNotFoundEmailAlert\PageNotFoundEmailAlertServiceProvider::class,
-```
+auto-discovery — no manual registration required.
 
 ## Configuration
 

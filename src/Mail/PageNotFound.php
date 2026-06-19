@@ -4,6 +4,9 @@ namespace Jeylabs\PageNotFoundEmailAlert\Mail;
 
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
+use Illuminate\Mail\Mailables\Address;
+use Illuminate\Mail\Mailables\Content;
+use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
 
 class PageNotFound extends Mailable
@@ -37,22 +40,28 @@ class PageNotFound extends Mailable
     }
 
     /**
-     * Build the message.
-     *
-     * @return $this
+     * Get the message envelope.
      */
-    public function build()
+    public function envelope(): Envelope
     {
-        $this->subject($this->config['subject'] ?? '404 Page Not Found Alert')
-             ->view('page-not-found-email-alert::email')
-             ->with('data', $this->data);
-
         $from = $this->config['from'] ?? [];
 
-        if (! empty($from['address'])) {
-            $this->from($from['address'], $from['name'] ?? null);
-        }
+        return new Envelope(
+            from: ! empty($from['address'])
+                ? new Address($from['address'], $from['name'] ?? null)
+                : null,
+            subject: $this->config['subject'] ?? '404 Page Not Found Alert',
+        );
+    }
 
-        return $this;
+    /**
+     * Get the message content definition.
+     */
+    public function content(): Content
+    {
+        return new Content(
+            view: 'page-not-found-email-alert::email',
+            with: ['data' => $this->data],
+        );
     }
 }
