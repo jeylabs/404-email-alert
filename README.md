@@ -9,7 +9,7 @@ spot broken links and suspicious scanning activity.
 
 ## Requirements
 
-* PHP `>= 8.5`
+* PHP `>= 8.4`
 * Laravel `^13.6`
 
 ## Installation
