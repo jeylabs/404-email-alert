@@ -4,6 +4,7 @@ namespace Jeylabs\PageNotFoundEmailAlert;
 
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Support\ServiceProvider;
+use Jeylabs\PageNotFoundEmailAlert\Console\SendRequestReport;
 use Jeylabs\PageNotFoundEmailAlert\Http\Middleware\PageNotFoundEmailAlert;
 
 class PageNotFoundEmailAlertServiceProvider extends ServiceProvider
@@ -29,6 +30,7 @@ class PageNotFoundEmailAlertServiceProvider extends ServiceProvider
     public function boot()
     {
         $this->loadViewsFrom(__DIR__.'/resources/views', 'page-not-found-email-alert');
+        $this->loadMigrationsFrom(__DIR__.'/database/migrations');
 
         if ($this->app->runningInConsole()) {
             $this->publishes([
@@ -38,6 +40,14 @@ class PageNotFoundEmailAlertServiceProvider extends ServiceProvider
             $this->publishes([
                 __DIR__.'/resources/views' => resource_path('views/vendor/page-not-found-email-alert'),
             ], 'views');
+
+            $this->publishes([
+                __DIR__.'/database/migrations' => database_path('migrations'),
+            ], 'migrations');
+
+            $this->commands([
+                SendRequestReport::class,
+            ]);
         }
 
         $this->registerMiddleware();
