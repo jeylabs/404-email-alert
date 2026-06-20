@@ -9,10 +9,19 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Cache;
 use Jeylabs\PageNotFoundEmailAlert\Mail\PageNotFound;
+use Jeylabs\PageNotFoundEmailAlert\Models\RequestLog;
 use Symfony\Component\HttpFoundation\Response;
 
 class PageNotFoundEmailAlert
 {
+    /**
+     * Cache of whether the request log table exists, to avoid re-checking the
+     * schema on every recorded request within a worker process.
+     *
+     * @var bool|null
+     */
+    protected static $tableExists = null;
+
     /**
      * Handle an incoming request.
      *
@@ -24,21 +33,93 @@ class PageNotFoundEmailAlert
     {
         $response = $next($request);
 
-        if ($response instanceof Response && $this->shouldAlert($request, $response)) {
-            $this->sendAlert($request);
+        if ($response instanceof Response) {
+            $status = $response->getStatusCode();
+
+            if ($this->shouldRecord($request, $status)) {
+                $this->record($request, $status);
+            }
+
+            if ($this->shouldAlert($request, $status)) {
+                $this->sendAlert($request);
+            }
         }
 
         return $response;
     }
 
     /**
+     * Determine whether the given response should be recorded for reporting.
+     * Any client (4xx) or server (5xx) error qualifies by default; the exact
+     * set of status codes can be narrowed via configuration.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @param  int  $status
+     * @return bool
+     */
+    protected function shouldRecord(Request $request, $status)
+    {
+        $config = $this->config();
+        $record = (array) ($config['record'] ?? []);
+
+        if (! ($record['enabled'] ?? false)) {
+            return false;
+        }
+
+        $statuses = array_map('intval', (array) ($record['statuses'] ?? []));
+
+        if (! empty($statuses)) {
+            if (! in_array((int) $status, $statuses, true)) {
+                return false;
+            }
+        } elseif ((int) $status < (int) ($record['minimum_status'] ?? 400)) {
+            return false;
+        }
+
+        return ! $this->isIgnored($request, $config['ignore'] ?? []);
+    }
+
+    /**
+     * Persist a record of the request/response so it can be aggregated into a
+     * report later. Storage failures are logged but never break the response.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @param  int  $status
+     * @return void
+     */
+    protected function record(Request $request, $status)
+    {
+        try {
+            if (! $this->tableExists()) {
+                return;
+            }
+
+            RequestLog::create([
+                'status_code' => (int) $status,
+                'method'      => $request->method(),
+                'url'         => $request->fullUrl(),
+                'path'        => $request->path(),
+                'referer'     => $request->headers->get('referer'),
+                'ip'          => $request->ip(),
+                'user_agent'  => $request->userAgent(),
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Failed to record bad request: '.$e->getMessage(), [
+                'exception' => $e,
+                'url'       => $request->fullUrl(),
+                'status'    => $status,
+            ]);
+        }
+    }
+
+    /**
      * Determine whether an alert should be sent for this request/response pair.
      *
      * @param  \Illuminate\Http\Request  $request
-     * @param  \Symfony\Component\HttpFoundation\Response  $response
+     * @param  int  $status
      * @return bool
      */
-    protected function shouldAlert(Request $request, Response $response)
+    protected function shouldAlert(Request $request, $status)
     {
         $config = $this->config();
 
@@ -46,7 +127,7 @@ class PageNotFoundEmailAlert
             return false;
         }
 
-        if ($response->getStatusCode() !== 404) {
+        if ((int) $status !== 404) {
             return false;
         }
 
@@ -151,6 +232,32 @@ class PageNotFoundEmailAlert
                 'url'       => $data['url'],
             ]);
         }
+    }
+
+    /**
+     * Determine whether the request log table exists. The positive result is
+     * cached for the lifetime of the process; a missing table is re-checked so
+     * recording starts working as soon as the migration has been run.
+     *
+     * @return bool
+     */
+    protected function tableExists()
+    {
+        if (static::$tableExists === true) {
+            return true;
+        }
+
+        $model = new RequestLog;
+
+        $exists = $model->getConnection()
+            ->getSchemaBuilder()
+            ->hasTable($model->getTable());
+
+        if ($exists) {
+            static::$tableExists = true;
+        }
+
+        return $exists;
     }
 
     /**

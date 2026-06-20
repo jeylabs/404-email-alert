@@ -32,7 +32,11 @@
         "php": "^8.4",
         "illuminate/support": "^13.6",
         "illuminate/mail": "^13.6",
-        "illuminate/http": "^13.6"
+        "illuminate/http": "^13.6",
+        "illuminate/console": "^13.6",
+        "illuminate/database": "^13.6",
+        "illuminate/routing": "^13.6",
+        "guzzlehttp/guzzle": "^7.8"
     },
     "require-dev": {
         "orchestra/testbench": "^11.1",
