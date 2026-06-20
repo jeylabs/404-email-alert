@@ -64,6 +64,28 @@ is `false`, no email is sent.
 
 ## Reporting on not-so-great requests
 
+It works out of the box: install the package, run `php artisan migrate`, and
+every failed (`4xx`/`5xx`) request is recorded. A daily digest is scheduled
+automatically and starts sending the moment recipients are configured — no
+changes to your console kernel required. Every part is toggleable from `.env`,
+and `vendor:publish --tag=config` gives you the full file to tune.
+
+At a glance — features and their default state:
+
+| Feature                | Default | Toggle (env)                       |
+|------------------------|---------|------------------------------------|
+| Instant 404 email      | on*     | `PAGE_NOT_FOUND_ALERT_ENABLED`     |
+| Recording 4xx/5xx      | on      | `PAGE_NOT_FOUND_RECORD_ENABLED`    |
+| Digest report          | on*     | `PAGE_NOT_FOUND_REPORT_ENABLED`    |
+| Auto-scheduled digest  | on*     | `PAGE_NOT_FOUND_REPORT_SCHEDULE`   |
+| HTML dashboard         | off     | `PAGE_NOT_FOUND_DASHBOARD_ENABLED` |
+| JSON API               | off     | `PAGE_NOT_FOUND_API_ENABLED`       |
+| Google-login gate      | on      | `PAGE_NOT_FOUND_AUTH_ENABLED`      |
+| reCAPTCHA on login     | off     | `PAGE_NOT_FOUND_RECAPTCHA_ENABLED` |
+
+\* Emails only go out once recipients are set, so the email features are safe to
+leave enabled before you've configured them.
+
 Every `4xx`/`5xx` response is recorded to the database so it can be summarised
 into a digest. The package ships a migration which runs automatically (Laravel
 discovers it via the service provider); you can publish it to customise the
@@ -115,10 +137,24 @@ Recipients are resolved from `--to`, then `report.to`
 | `report.limit`          | Number of rows shown in each "top" breakdown.                              |
 | `report.send_when_empty`| Whether to send a report even when nothing was recorded (default `false`). |
 
-### Scheduling
+### Automatic scheduling
 
-Add the command to your scheduler to receive the digest automatically. In
-`routes/console.php` (Laravel 11+):
+By default the package registers the report command on Laravel's scheduler for
+you, so you only need the scheduler itself to be running (`php artisan
+schedule:run` via cron, or `schedule:work` locally). Tune it from `.env`:
+
+```dotenv
+PAGE_NOT_FOUND_REPORT_SCHEDULE=true       # set false to schedule it yourself
+PAGE_NOT_FOUND_REPORT_FREQUENCY=daily     # hourly|daily|twiceDaily|weekly|monthly|<cron>
+PAGE_NOT_FOUND_REPORT_TIME=08:00          # for daily/weekly/monthly
+PAGE_NOT_FOUND_REPORT_SCHEDULE_PRUNE=true # also prune old records each run
+```
+
+`frequency` also accepts a raw cron expression, e.g.
+`PAGE_NOT_FOUND_REPORT_FREQUENCY="0 */6 * * *"` for every six hours.
+
+Prefer to wire it up manually? Set `PAGE_NOT_FOUND_REPORT_SCHEDULE=false` and add
+it to `routes/console.php` yourself:
 
 ```php
 use Illuminate\Support\Facades\Schedule;
@@ -128,6 +164,79 @@ Schedule::command('page-not-found:report --prune')->dailyAt('07:00');
 
 Customise the digest email by publishing the views (see below); the digest
 template is `report.blade.php`.
+
+## Dashboard & JSON API
+
+The same data can be browsed in-app via an HTML dashboard, or consumed as JSON.
+Both are **disabled by default** because they expose request data (URLs, IPs,
+user agents) — enable them and put them behind appropriate middleware before
+using them in production.
+
+```dotenv
+PAGE_NOT_FOUND_DASHBOARD_ENABLED=true
+PAGE_NOT_FOUND_API_ENABLED=true
+```
+
+| Key                    | Description                                                                       |
+|------------------------|-----------------------------------------------------------------------------------|
+| `dashboard.enabled`    | Serve the HTML dashboard.                                                          |
+| `dashboard.path`       | URI prefix for the dashboard (default `page-not-found`).                           |
+| `dashboard.middleware` | Middleware applied to the dashboard route (default `['web']` — add `auth` etc.).   |
+| `api.enabled`          | Serve the read-only JSON endpoint.                                                 |
+| `api.path`             | URI prefix for the API (default `api/page-not-found`).                             |
+| `api.middleware`       | Middleware applied to the API route (default `['api']`).                           |
+
+Both accept a `?hours=` query parameter to change the window (e.g.
+`/page-not-found?hours=168` for the last 7 days). The dashboard view can be
+customised by publishing the views; its template is `dashboard.blade.php`.
+
+### Access control: Sign in with Google
+
+The dashboard and API are protected by **Sign in with Google** out of the box
+(`auth.enabled` defaults to `true`). Only the email addresses you allow-list can
+view the dashboard or call the API — anyone else is redirected to a login screen
+or, for the API, receives a `401`. The same browser session grants access to
+both, so once you've signed in for the dashboard the API works too.
+
+1. In the [Google Cloud console](https://console.cloud.google.com/apis/credentials)
+   create an **OAuth 2.0 Client ID** (type: *Web application*).
+2. Add the callback as an *Authorised redirect URI* — by default
+   `https://your-app.test/page-not-found/auth/callback`.
+3. Configure `.env`:
+
+```dotenv
+PAGE_NOT_FOUND_AUTH_ENABLED=true
+PAGE_NOT_FOUND_AUTH_EMAILS=you@yourcompany.com,ops@yourcompany.com
+PAGE_NOT_FOUND_GOOGLE_CLIENT_ID=xxxx.apps.googleusercontent.com
+PAGE_NOT_FOUND_GOOGLE_CLIENT_SECRET=your-secret
+```
+
+| Key                   | Description                                                                  |
+|-----------------------|------------------------------------------------------------------------------|
+| `auth.enabled`        | Protect the dashboard/API with Google login (default `true`).                |
+| `auth.allowed_emails` | The Google emails permitted to sign in. **Empty = nobody** (locked down).    |
+| `auth.path`           | URI prefix for the login/callback routes (default `page-not-found/auth`).    |
+| `auth.google.*`       | OAuth client id/secret, and an optional redirect URI override.               |
+
+No allow-listed email matches? Access is denied — so the feature fails closed.
+You can still set `middleware` on the routes for an extra layer (VPN/IP).
+
+### Bot protection: reCAPTCHA
+
+The login entry point can be guarded with Google reCAPTCHA (v2 checkbox or v3).
+Add your keys and enable it:
+
+```dotenv
+PAGE_NOT_FOUND_RECAPTCHA_ENABLED=true
+PAGE_NOT_FOUND_RECAPTCHA_SITE_KEY=your-site-key
+PAGE_NOT_FOUND_RECAPTCHA_SECRET_KEY=your-secret-key
+# v3 only — minimum passing score (0.0–1.0):
+PAGE_NOT_FOUND_RECAPTCHA_MIN_SCORE=0.5
+```
+
+When enabled, the login form renders the reCAPTCHA widget and the redirect to
+Google is rejected unless the captcha verifies (for v3, the score must meet
+`min_score`). This keeps bots from hammering the OAuth flow.
 
 ### Customising the email template
 
@@ -142,10 +251,18 @@ The view is published to `resources/views/vendor/page-not-found-email-alert/emai
 ## How it works
 
 The package appends a lightweight global middleware to the HTTP kernel. After
-each request is handled, the middleware inspects the response: when it is a
-`404`, the request is not in the ignore list, and the URL has not already
-triggered an alert within the throttle window, an email is dispatched. Mail
-failures are logged and never interfere with the response returned to the user.
+each request is handled, the middleware inspects the response:
+
+* When it is a `404`, not in the ignore list, and the URL has not already
+  triggered an alert within the throttle window, the instant alert email is
+  dispatched.
+* When it is any `4xx`/`5xx` (and not ignored), it is recorded to the database
+  for reporting. Recording is skipped silently until the migration has run, so
+  it never spams your logs.
+
+Mail and storage failures are caught, logged, and never interfere with the
+response returned to the user. The digest command and the dashboard/API read
+back the recorded rows and aggregate them on demand.
 
 ## License
 

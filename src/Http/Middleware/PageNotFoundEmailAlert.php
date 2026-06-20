@@ -15,6 +15,14 @@ use Symfony\Component\HttpFoundation\Response;
 class PageNotFoundEmailAlert
 {
     /**
+     * Cache of whether the request log table exists, to avoid re-checking the
+     * schema on every recorded request within a worker process.
+     *
+     * @var bool|null
+     */
+    protected static $tableExists = null;
+
+    /**
      * Handle an incoming request.
      *
      * @param  \Illuminate\Http\Request  $request
@@ -82,6 +90,10 @@ class PageNotFoundEmailAlert
     protected function record(Request $request, $status)
     {
         try {
+            if (! $this->tableExists()) {
+                return;
+            }
+
             RequestLog::create([
                 'status_code' => (int) $status,
                 'method'      => $request->method(),
@@ -220,6 +232,32 @@ class PageNotFoundEmailAlert
                 'url'       => $data['url'],
             ]);
         }
+    }
+
+    /**
+     * Determine whether the request log table exists. The positive result is
+     * cached for the lifetime of the process; a missing table is re-checked so
+     * recording starts working as soon as the migration has been run.
+     *
+     * @return bool
+     */
+    protected function tableExists()
+    {
+        if (static::$tableExists === true) {
+            return true;
+        }
+
+        $model = new RequestLog;
+
+        $exists = $model->getConnection()
+            ->getSchemaBuilder()
+            ->hasTable($model->getTable());
+
+        if ($exists) {
+            static::$tableExists = true;
+        }
+
+        return $exists;
     }
 
     /**

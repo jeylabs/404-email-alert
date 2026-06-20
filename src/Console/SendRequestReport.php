@@ -7,6 +7,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Mail;
 use Jeylabs\PageNotFoundEmailAlert\Mail\RequestReport;
 use Jeylabs\PageNotFoundEmailAlert\Models\RequestLog;
+use Jeylabs\PageNotFoundEmailAlert\Reporting\ReportBuilder;
 
 class SendRequestReport extends Command
 {
@@ -34,16 +35,18 @@ class SendRequestReport extends Command
      *
      * @return int
      */
-    public function handle()
+    public function handle(ReportBuilder $builder)
     {
         $config = (array) config('page-not-found-email-alert', []);
         $reportConfig = (array) ($config['report'] ?? []);
 
-        $end = Carbon::now();
-        $start = $this->resolveStart($end, $reportConfig);
-        $limit = (int) ($reportConfig['limit'] ?? 20);
+        [$start, $end] = $builder->window(
+            $this->option('hours'),
+            $this->option('since'),
+            $reportConfig
+        );
 
-        $report = $this->compile($start, $end, max(1, $limit));
+        $report = $builder->build($start, $end, (int) ($reportConfig['limit'] ?? 20));
 
         if ($this->option('dry')) {
             $this->renderToConsole($report);
@@ -64,9 +67,11 @@ class SendRequestReport extends Command
         $recipients = $this->resolveRecipients($config, $reportConfig);
 
         if (empty($recipients)) {
+            // Treat "not configured yet" as a benign skip so scheduled runs do
+            // not show up as failures before recipients have been set.
             $this->warn('No report recipients configured; skipping. Set PAGE_NOT_FOUND_REPORT_TO or pass --to.');
 
-            return self::FAILURE;
+            return self::SUCCESS;
         }
 
         Mail::to($recipients)->send(new RequestReport($report, $config));
@@ -80,109 +85,6 @@ class SendRequestReport extends Command
         $this->maybePrune($config);
 
         return self::SUCCESS;
-    }
-
-    /**
-     * Determine the start of the reporting window.
-     *
-     * @param  \Illuminate\Support\Carbon  $end
-     * @param  array  $reportConfig
-     * @return \Illuminate\Support\Carbon
-     */
-    protected function resolveStart(Carbon $end, array $reportConfig)
-    {
-        if ($since = $this->option('since')) {
-            return Carbon::parse($since);
-        }
-
-        $hours = (int) ($this->option('hours') ?: ($reportConfig['period_hours'] ?? 24));
-
-        return $end->copy()->subHours(max(1, $hours));
-    }
-
-    /**
-     * Build the aggregated report payload for the given window.
-     *
-     * @param  \Illuminate\Support\Carbon  $start
-     * @param  \Illuminate\Support\Carbon  $end
-     * @param  int  $limit
-     * @return array
-     */
-    protected function compile(Carbon $start, Carbon $end, $limit)
-    {
-        $window = fn () => RequestLog::query()->between($start, $end);
-
-        $total = $window()->count();
-
-        $byStatus = $window()
-            ->selectRaw('status_code, COUNT(*) as aggregate')
-            ->groupBy('status_code')
-            ->orderByDesc('aggregate')
-            ->get()
-            ->map(fn ($row) => [
-                'status' => (int) $row->status_code,
-                'count'  => (int) $row->aggregate,
-            ])
-            ->all();
-
-        $clientErrors = collect($byStatus)
-            ->filter(fn ($row) => $row['status'] >= 400 && $row['status'] < 500)
-            ->sum('count');
-
-        $serverErrors = collect($byStatus)
-            ->filter(fn ($row) => $row['status'] >= 500)
-            ->sum('count');
-
-        $topPaths = $window()
-            ->selectRaw('path, COUNT(*) as aggregate, MAX(created_at) as last_seen')
-            ->groupBy('path')
-            ->orderByDesc('aggregate')
-            ->limit($limit)
-            ->get()
-            ->map(fn ($row) => [
-                'path'      => $row->path,
-                'count'     => (int) $row->aggregate,
-                'last_seen' => (string) $row->last_seen,
-            ])
-            ->all();
-
-        $topIps = $window()
-            ->whereNotNull('ip')
-            ->selectRaw('ip, COUNT(*) as aggregate')
-            ->groupBy('ip')
-            ->orderByDesc('aggregate')
-            ->limit($limit)
-            ->get()
-            ->map(fn ($row) => [
-                'ip'    => $row->ip,
-                'count' => (int) $row->aggregate,
-            ])
-            ->all();
-
-        $topUserAgents = $window()
-            ->whereNotNull('user_agent')
-            ->selectRaw('user_agent, COUNT(*) as aggregate')
-            ->groupBy('user_agent')
-            ->orderByDesc('aggregate')
-            ->limit($limit)
-            ->get()
-            ->map(fn ($row) => [
-                'user_agent' => $row->user_agent,
-                'count'      => (int) $row->aggregate,
-            ])
-            ->all();
-
-        return [
-            'from'            => $start->toDateTimeString(),
-            'to'              => $end->toDateTimeString(),
-            'total'           => $total,
-            'client_errors'   => (int) $clientErrors,
-            'server_errors'   => (int) $serverErrors,
-            'by_status'       => $byStatus,
-            'top_paths'       => $topPaths,
-            'top_ips'         => $topIps,
-            'top_user_agents' => $topUserAgents,
-        ];
     }
 
     /**

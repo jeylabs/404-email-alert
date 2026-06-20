@@ -128,6 +128,10 @@ return [
 
     'report' => [
 
+        // Master switch for the reporting feature. When disabled the digest is
+        // never scheduled automatically (you can still run the command by hand).
+        'enabled' => env('PAGE_NOT_FOUND_REPORT_ENABLED', true),
+
         // Recipients for the digest. Falls back to the alert "to" addresses
         // above when left empty.
         'to' => array_values(array_filter(array_map('trim', explode(
@@ -146,6 +150,140 @@ return [
 
         // Whether to still send a report when no failed requests were recorded.
         'send_when_empty' => env('PAGE_NOT_FOUND_REPORT_SEND_WHEN_EMPTY', false),
+
+        /*
+        |----------------------------------------------------------------------
+        | Automatic Scheduling
+        |----------------------------------------------------------------------
+        |
+        | When enabled, the package registers `page-not-found:report` on
+        | Laravel's scheduler for you — no need to touch your console kernel.
+        | It only emails once recipients are configured, so it is safe to
+        | leave on. Requires the scheduler to be running (`schedule:run`).
+        |
+        */
+
+        'schedule' => [
+
+            // Register the digest on the scheduler automatically.
+            'enabled' => env('PAGE_NOT_FOUND_REPORT_SCHEDULE', true),
+
+            // How often to send: "hourly", "daily", "twiceDaily", "weekly",
+            // "monthly", or any raw cron expression (e.g. "0 */6 * * *").
+            'frequency' => env('PAGE_NOT_FOUND_REPORT_FREQUENCY', 'daily'),
+
+            // Time of day for daily/weekly/monthly frequencies (24h, "HH:MM").
+            'time' => env('PAGE_NOT_FOUND_REPORT_TIME', '08:00'),
+
+            // Also prune records past the retention period on each run.
+            'prune' => env('PAGE_NOT_FOUND_REPORT_SCHEDULE_PRUNE', true),
+
+        ],
+
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Dashboard
+    |--------------------------------------------------------------------------
+    |
+    | An in-app HTML page visualising the recorded requests. It exposes the
+    | same data as the digest, so it is DISABLED by default — enable it and
+    | protect the route with appropriate middleware (e.g. "auth", or a
+    | gate/IP restriction) before turning it on in production.
+    |
+    */
+
+    'dashboard' => [
+
+        'enabled' => env('PAGE_NOT_FOUND_DASHBOARD_ENABLED', false),
+
+        // The URI the dashboard is served from, e.g. "/page-not-found".
+        'path' => env('PAGE_NOT_FOUND_DASHBOARD_PATH', 'page-not-found'),
+
+        // Middleware applied to the dashboard route. Add "auth" (or similar)
+        // to keep it private.
+        'middleware' => ['web'],
+
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | JSON API
+    |--------------------------------------------------------------------------
+    |
+    | A read-only JSON endpoint returning the aggregated report, handy for
+    | building your own dashboards or widgets. Also DISABLED by default; add
+    | auth middleware before exposing it.
+    |
+    */
+
+    'api' => [
+
+        'enabled' => env('PAGE_NOT_FOUND_API_ENABLED', false),
+
+        // The URI the JSON endpoint is served from, e.g. "/api/page-not-found".
+        'path' => env('PAGE_NOT_FOUND_API_PATH', 'api/page-not-found'),
+
+        // Middleware applied to the API route.
+        'middleware' => ['api'],
+
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Access Control (Google Login)
+    |--------------------------------------------------------------------------
+    |
+    | When enabled, the dashboard and JSON API are protected by "Sign in with
+    | Google" and only the configured email addresses may view them. Create an
+    | OAuth client ID in the Google Cloud console and add the callback URL
+    | (default "<app>/page-not-found/auth/callback") as an authorised redirect.
+    |
+    */
+
+    'auth' => [
+
+        // Protect the dashboard/API with Google login. Strongly recommended
+        // whenever either is exposed.
+        'enabled' => env('PAGE_NOT_FOUND_AUTH_ENABLED', true),
+
+        // URI prefix for the login/callback routes.
+        'path' => env('PAGE_NOT_FOUND_AUTH_PATH', 'page-not-found/auth'),
+
+        // The Google email addresses allowed to sign in. Comma separated via
+        // the environment, or an array here. Empty = nobody (locked down).
+        'allowed_emails' => array_values(array_filter(array_map('trim', explode(
+            ',',
+            (string) env('PAGE_NOT_FOUND_AUTH_EMAILS', '')
+        )))),
+
+        'google' => [
+            'client_id'     => env('PAGE_NOT_FOUND_GOOGLE_CLIENT_ID'),
+            'client_secret' => env('PAGE_NOT_FOUND_GOOGLE_CLIENT_SECRET'),
+            // Optional: override the OAuth redirect URI (e.g. behind a proxy).
+            'redirect'      => env('PAGE_NOT_FOUND_GOOGLE_REDIRECT'),
+        ],
+
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | reCAPTCHA
+    |--------------------------------------------------------------------------
+    |
+    | Protects the login entry point from bots. Supports both reCAPTCHA v2
+    | (checkbox) and v3 (a "min_score" threshold is applied when Google returns
+    | a score). Provide the site/secret keys from the reCAPTCHA admin console.
+    |
+    */
+
+    'recaptcha' => [
+
+        'enabled'    => env('PAGE_NOT_FOUND_RECAPTCHA_ENABLED', false),
+        'site_key'   => env('PAGE_NOT_FOUND_RECAPTCHA_SITE_KEY'),
+        'secret_key' => env('PAGE_NOT_FOUND_RECAPTCHA_SECRET_KEY'),
+        'min_score'  => env('PAGE_NOT_FOUND_RECAPTCHA_MIN_SCORE', 0.5),
 
     ],
 
