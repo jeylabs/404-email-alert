@@ -42,6 +42,16 @@
         .bar > span { display: block; height: 100%; background: #2563eb; }
         code { word-break: break-all; }
         .empty { padding: 40px 20px; text-align: center; color: #16a34a; }
+        .chart { display: flex; align-items: flex-end; gap: 2px; height: 120px; padding: 16px 20px 8px; }
+        .chart .col { flex: 1 1 0; min-width: 2px; display: flex; flex-direction: column; justify-content: flex-end; border-radius: 2px 2px 0 0; overflow: hidden; }
+        .chart .col:hover { outline: 2px solid #c7d2fe; }
+        .chart .seg.client { background: #d97706; }
+        .chart .seg.server { background: #dc2626; }
+        .chart-legend { display: flex; gap: 16px; align-items: center; padding: 0 20px 16px; font-size: 12px; color: #6b7280; }
+        .chart-legend .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+        .chart-legend .swatch.client { background: #d97706; }
+        .chart-legend .swatch.server { background: #dc2626; }
+        .chart-legend .chart-range { margin-left: auto; }
     </style>
 </head>
 <body>
@@ -81,6 +91,29 @@
     @if ($report['total'] === 0)
         <section><div class="empty">No failed requests recorded for this period. 🎉</div></section>
     @else
+        @php $maxPoint = collect($report['series']['points'])->max('total') ?: 1; @endphp
+        <section>
+            <h2>Requests over time <span style="color:#9ca3af; font-weight:400;">(per {{ $report['series']['unit'] }})</span></h2>
+            <div class="chart">
+                @foreach ($report['series']['points'] as $point)
+                    @php
+                        $h = (int) round($point['total'] / $maxPoint * 120);
+                        $serverH = $point['total'] > 0 ? (int) round($point['server_errors'] / $point['total'] * $h) : 0;
+                        $clientH = $h - $serverH;
+                    @endphp
+                    <div class="col" title="{{ $point['period'] }} — {{ $point['total'] }} total ({{ $point['client_errors'] }} client / {{ $point['server_errors'] }} server)">
+                        <div class="seg server" style="height: {{ $serverH }}px"></div>
+                        <div class="seg client" style="height: {{ $clientH }}px"></div>
+                    </div>
+                @endforeach
+            </div>
+            <div class="chart-legend">
+                <span><i class="swatch client"></i> Client (4xx)</span>
+                <span><i class="swatch server"></i> Server (5xx)</span>
+                <span class="chart-range">{{ $report['series']['points'][0]['period'] ?? '' }} → {{ end($report['series']['points'])['period'] ?? '' }}</span>
+            </div>
+        </section>
+
         @php $maxStatus = collect($report['by_status'])->max('count') ?: 1; @endphp
         <section>
             <h2>By status code</h2>

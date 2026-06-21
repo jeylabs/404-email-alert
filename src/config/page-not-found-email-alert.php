@@ -315,4 +315,68 @@ return [
 
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Threshold / Spike Alerts
+    |--------------------------------------------------------------------------
+    |
+    | Near-real-time alerts when error volume crosses a threshold — e.g. "more
+    | than 25 server errors in 5 minutes" — to catch an outage or attack as it
+    | happens, rather than waiting for the digest. Rules are evaluated as
+    | requests are recorded (rate-limited by "check_interval") and, when the
+    | monitor command is scheduled, on a fixed cadence too. A per-rule cooldown
+    | prevents repeat emails. Disabled by default — set recipients and tune the
+    | rules for your traffic, then enable.
+    |
+    */
+
+    'alerts' => [
+
+        'enabled' => env('PAGE_NOT_FOUND_ALERTS_ENABLED', false),
+
+        // Recipients. Falls back to report.to, then the alert "to" addresses.
+        'to' => array_values(array_filter(array_map('trim', explode(
+            ',',
+            (string) env('PAGE_NOT_FOUND_ALERTS_TO', '')
+        )))),
+
+        'subject' => env('PAGE_NOT_FOUND_ALERTS_SUBJECT', 'Error spike detected'),
+
+        // Minutes to suppress repeat alerts for the same rule once it fires.
+        'cooldown' => env('PAGE_NOT_FOUND_ALERTS_COOLDOWN', 30),
+
+        // Evaluate as requests come in, throttled so the check runs at most once
+        // per "check_interval" seconds regardless of traffic volume.
+        'realtime' => [
+            'enabled'        => env('PAGE_NOT_FOUND_ALERTS_REALTIME', true),
+            'check_interval' => env('PAGE_NOT_FOUND_ALERTS_INTERVAL', 60),
+        ],
+
+        // Also evaluate on a schedule (reliable even with bursty/low traffic).
+        // Requires Laravel's scheduler to be running.
+        'schedule' => [
+            'enabled' => env('PAGE_NOT_FOUND_ALERTS_SCHEDULE', true),
+            'cron'    => env('PAGE_NOT_FOUND_ALERTS_CRON', '* * * * *'),
+        ],
+
+        // Each rule: name, a status range (min_status/max_status) or explicit
+        // "statuses" list, a "threshold" count and a "window" in minutes.
+        'rules' => [
+            [
+                'name'       => 'Server error spike',
+                'min_status' => 500,
+                'threshold'  => 25,
+                'window'     => 5,
+            ],
+            [
+                'name'       => 'Client error surge',
+                'min_status' => 400,
+                'max_status' => 499,
+                'threshold'  => 200,
+                'window'     => 5,
+            ],
+        ],
+
+    ],
+
 ];

@@ -104,6 +104,8 @@ class PageNotFoundEmailAlert
             // Synchronous fallback: write inline within the request.
             if (RequestLog::tableExists()) {
                 RequestLog::create($attributes);
+
+                app(\Jeylabs\PageNotFoundEmailAlert\Reporting\ThresholdMonitor::class)->maybeEvaluate();
             }
         } catch (\Throwable $e) {
             Log::error('Failed to record bad request: '.$e->getMessage(), [

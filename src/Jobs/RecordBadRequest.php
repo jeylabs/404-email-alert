@@ -8,6 +8,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Support\Facades\Log;
 use Jeylabs\PageNotFoundEmailAlert\Models\RequestLog;
+use Jeylabs\PageNotFoundEmailAlert\Reporting\ThresholdMonitor;
 
 /**
  * Persists a recorded "not so great" request off the request lifecycle. When a
@@ -47,6 +48,8 @@ class RecordBadRequest implements ShouldQueue
             }
 
             RequestLog::create($this->attributes);
+
+            app(ThresholdMonitor::class)->maybeEvaluate();
         } catch (\Throwable $e) {
             Log::error('Failed to record bad request (queued): '.$e->getMessage(), [
                 'exception' => $e,

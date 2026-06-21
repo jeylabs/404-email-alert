@@ -78,6 +78,7 @@ At a glance — features and their default state:
 | Recording 4xx/5xx      | on      | `PAGE_NOT_FOUND_RECORD_ENABLED`    |
 | Digest report          | on*     | `PAGE_NOT_FOUND_REPORT_ENABLED`    |
 | Auto-scheduled digest  | on*     | `PAGE_NOT_FOUND_REPORT_SCHEDULE`   |
+| Threshold/spike alerts | off     | `PAGE_NOT_FOUND_ALERTS_ENABLED`    |
 | HTML dashboard         | off     | `PAGE_NOT_FOUND_DASHBOARD_ENABLED` |
 | JSON API               | off     | `PAGE_NOT_FOUND_API_ENABLED`       |
 | Google-login gate      | on      | `PAGE_NOT_FOUND_AUTH_ENABLED`      |
@@ -126,6 +127,40 @@ worker; with the `sync` connection it runs inline exactly as before. **If your
 default queue connection is not `sync`, make sure a worker is running** —
 otherwise records will sit unprocessed. To always write synchronously inside the
 request, set `PAGE_NOT_FOUND_RECORD_QUEUE=false`.
+
+### Threshold / spike alerts
+
+Beyond the per-URL 404 email and the periodic digest, the package can send a
+near-real-time alert when error volume crosses a threshold — e.g. *"more than 25
+server errors in 5 minutes"* — so you hear about an outage or attack as it
+happens. Rules are evaluated as requests are recorded (rate-limited so the check
+runs at most once per `check_interval` seconds) and, when scheduled, on a fixed
+cadence too. A per-rule cooldown prevents repeat emails.
+
+Disabled by default (the thresholds are traffic-specific). Enable and tune:
+
+```dotenv
+PAGE_NOT_FOUND_ALERTS_ENABLED=true
+PAGE_NOT_FOUND_ALERTS_TO=ops@example.com   # falls back to report.to, then the alert "to"
+PAGE_NOT_FOUND_ALERTS_COOLDOWN=30          # minutes between repeat alerts per rule
+```
+
+Rules live in the published config under `alerts.rules`; each has a `name`, a
+status range (`min_status`/`max_status`) or explicit `statuses` list, a
+`threshold` count and a `window` in minutes:
+
+```php
+'rules' => [
+    ['name' => 'Server error spike', 'min_status' => 500, 'threshold' => 25, 'window' => 5],
+    ['name' => 'Client error surge', 'min_status' => 400, 'max_status' => 499, 'threshold' => 200, 'window' => 5],
+],
+```
+
+The `page-not-found:monitor` command evaluates the rules on demand; add `--dry`
+to print each rule's current count and breach status without sending anything.
+When `alerts.schedule.enabled` is on (default), the monitor is auto-registered on
+the scheduler every minute, so alerts fire reliably even with bursty traffic
+(requires `schedule:run` to be running).
 
 ### The report command
 
@@ -209,6 +244,13 @@ PAGE_NOT_FOUND_API_ENABLED=true
 Both accept a `?hours=` query parameter to change the window (e.g.
 `/page-not-found?hours=168` for the last 7 days). The dashboard view can be
 customised by publishing the views; its template is `dashboard.blade.php`.
+
+The dashboard opens with a **"Requests over time"** chart — a zero-filled,
+stacked (4xx/5xx) time-series bucketed by minute/hour/day depending on the
+window — and the digest email includes a **"Busiest periods"** summary. The same
+data is exposed under `series` in the API payload (`series.unit` and an array of
+`series.points`, each with `period`, `total`, `client_errors`, `server_errors`),
+so you can build your own charts.
 
 ### Access control: Sign in with Google
 
