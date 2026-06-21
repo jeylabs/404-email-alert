@@ -33,6 +33,9 @@ abstract class TestCase extends Orchestra
     {
         $app['config']->set('app.key', 'base64:'.base64_encode(random_bytes(32)));
 
+        // Run queued jobs inline so recording assertions are deterministic.
+        $app['config']->set('queue.default', 'sync');
+
         $app['config']->set('database.default', 'testing');
         $app['config']->set('database.connections.testing', [
             'driver'   => 'sqlite',

@@ -8,20 +8,13 @@ use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Cache;
+use Jeylabs\PageNotFoundEmailAlert\Jobs\RecordBadRequest;
 use Jeylabs\PageNotFoundEmailAlert\Mail\PageNotFound;
 use Jeylabs\PageNotFoundEmailAlert\Models\RequestLog;
 use Symfony\Component\HttpFoundation\Response;
 
 class PageNotFoundEmailAlert
 {
-    /**
-     * Cache of whether the request log table exists, to avoid re-checking the
-     * schema on every recorded request within a worker process.
-     *
-     * @var bool|null
-     */
-    protected static $tableExists = null;
-
     /**
      * Handle an incoming request.
      *
@@ -89,27 +82,58 @@ class PageNotFoundEmailAlert
      */
     protected function record(Request $request, $status)
     {
+        $attributes = [
+            'status_code' => (int) $status,
+            'method'      => $request->method(),
+            'url'         => $request->fullUrl(),
+            'path'        => $request->path(),
+            'referer'     => $request->headers->get('referer'),
+            'ip'          => $request->ip(),
+            'user_agent'  => $request->userAgent(),
+        ];
+
         try {
-            if (! $this->tableExists()) {
+            $queue = (array) ($this->config()['record']['queue'] ?? []);
+
+            if ($queue['enabled'] ?? false) {
+                $this->dispatchRecord($attributes, $queue);
+
                 return;
             }
 
-            RequestLog::create([
-                'status_code' => (int) $status,
-                'method'      => $request->method(),
-                'url'         => $request->fullUrl(),
-                'path'        => $request->path(),
-                'referer'     => $request->headers->get('referer'),
-                'ip'          => $request->ip(),
-                'user_agent'  => $request->userAgent(),
-            ]);
+            // Synchronous fallback: write inline within the request.
+            if (RequestLog::tableExists()) {
+                RequestLog::create($attributes);
+            }
         } catch (\Throwable $e) {
             Log::error('Failed to record bad request: '.$e->getMessage(), [
                 'exception' => $e,
-                'url'       => $request->fullUrl(),
+                'url'       => $attributes['url'],
                 'status'    => $status,
             ]);
         }
+    }
+
+    /**
+     * Dispatch the recording job onto the configured queue/connection.
+     *
+     * @param  array  $attributes
+     * @param  array  $queue
+     * @return void
+     */
+    protected function dispatchRecord(array $attributes, array $queue)
+    {
+        $job = new RecordBadRequest($attributes);
+
+        if (! empty($queue['connection'])) {
+            $job->onConnection($queue['connection']);
+        }
+
+        if (! empty($queue['queue'])) {
+            $job->onQueue($queue['queue']);
+        }
+
+        dispatch($job);
     }
 
     /**
@@ -232,32 +256,6 @@ class PageNotFoundEmailAlert
                 'url'       => $data['url'],
             ]);
         }
-    }
-
-    /**
-     * Determine whether the request log table exists. The positive result is
-     * cached for the lifetime of the process; a missing table is re-checked so
-     * recording starts working as soon as the migration has been run.
-     *
-     * @return bool
-     */
-    protected function tableExists()
-    {
-        if (static::$tableExists === true) {
-            return true;
-        }
-
-        $model = new RequestLog;
-
-        $exists = $model->getConnection()
-            ->getSchemaBuilder()
-            ->hasTable($model->getTable());
-
-        if ($exists) {
-            static::$tableExists = true;
-        }
-
-        return $exists;
     }
 
     /**

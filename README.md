@@ -104,8 +104,28 @@ php artisan vendor:publish --provider="Jeylabs\PageNotFoundEmailAlert\PageNotFou
 | `record.statuses`       | Exact status codes to record. Empty = everything at/above `minimum_status` (all 4xx/5xx).            |
 | `record.minimum_status` | When `statuses` is empty, the lowest status code to record (default `400`).                          |
 | `record.retention_days` | How many days of history to keep, used by `--prune` (default `30`, `0` disables).                    |
+| `record.queue.enabled`  | Record asynchronously via a queued job instead of writing inline (default `true`).                   |
+| `record.queue.connection` | Queue connection to dispatch on (`null` = the app's default).                                      |
+| `record.queue.queue`    | Queue name to dispatch on (`null` = the default queue).                                              |
 
 The `ignore` patterns used for alerts also apply to recording.
+
+### Asynchronous recording
+
+By default the database write is pushed onto a queue (`RecordBadRequest` job) so
+it never adds latency to error responses:
+
+```dotenv
+PAGE_NOT_FOUND_RECORD_QUEUE=true
+PAGE_NOT_FOUND_RECORD_QUEUE_CONNECTION=redis   # optional, defaults to your default connection
+PAGE_NOT_FOUND_RECORD_QUEUE_NAME=monitoring    # optional, defaults to the default queue
+```
+
+With a real queue connection (`database`, `redis`, `sqs`) the write runs on a
+worker; with the `sync` connection it runs inline exactly as before. **If your
+default queue connection is not `sync`, make sure a worker is running** —
+otherwise records will sit unprocessed. To always write synchronously inside the
+request, set `PAGE_NOT_FOUND_RECORD_QUEUE=false`.
 
 ### The report command
 
@@ -256,9 +276,10 @@ each request is handled, the middleware inspects the response:
 * When it is a `404`, not in the ignore list, and the URL has not already
   triggered an alert within the throttle window, the instant alert email is
   dispatched.
-* When it is any `4xx`/`5xx` (and not ignored), it is recorded to the database
-  for reporting. Recording is skipped silently until the migration has run, so
-  it never spams your logs.
+* When it is any `4xx`/`5xx` (and not ignored), it is recorded for reporting —
+  by default via a queued job so the response is never slowed by a database
+  write. Recording is skipped silently until the migration has run, so it never
+  spams your logs.
 
 Mail and storage failures are caught, logged, and never interfere with the
 response returned to the user. The digest command and the dashboard/API read
