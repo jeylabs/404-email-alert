@@ -93,6 +93,8 @@ class PageNotFoundEmailAlertServiceProvider extends ServiceProvider
             ], function () {
                 Route::get('/', [ReportController::class, 'index'])
                     ->name('page-not-found.dashboard');
+                Route::get('requests', [ReportController::class, 'requests'])
+                    ->name('page-not-found.requests');
             });
         }
 

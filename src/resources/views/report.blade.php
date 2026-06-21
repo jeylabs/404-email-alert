@@ -29,6 +29,18 @@
             <td style="font-weight: bold;">Server errors (5xx)</td>
             <td>{{ number_format($report['server_errors']) }}</td>
         </tr>
+        @if (isset($report['traffic']))
+            <tr style="background: #f7f7f7;">
+                <td style="font-weight: bold;">Humans / bots</td>
+                <td>{{ number_format($report['traffic']['humans']) }} human · {{ number_format($report['traffic']['bots']) }} bot/scanner</td>
+            </tr>
+        @endif
+        @if (isset($report['referers']))
+            <tr>
+                <td style="font-weight: bold;">Referers</td>
+                <td>{{ number_format($report['referers']['internal']) }} internal · {{ number_format($report['referers']['external']) }} external · {{ number_format($report['referers']['direct']) }} direct</td>
+            </tr>
+        @endif
     </table>
 
     @if ($report['total'] === 0)

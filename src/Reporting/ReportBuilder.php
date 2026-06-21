@@ -84,6 +84,35 @@ class ReportBuilder
             ])
             ->all();
 
+        $traffic = $window()
+            ->selectRaw('SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) as bots')
+            ->selectRaw('SUM(CASE WHEN is_bot = 0 THEN 1 ELSE 0 END) as humans')
+            ->first();
+
+        $bots = (int) ($traffic->bots ?? 0);
+        $humans = (int) ($traffic->humans ?? 0);
+
+        $referer = $window()
+            ->selectRaw('SUM(CASE WHEN referer_internal = 1 THEN 1 ELSE 0 END) as internal')
+            ->selectRaw('SUM(CASE WHEN referer_internal = 0 THEN 1 ELSE 0 END) as external')
+            ->selectRaw('SUM(CASE WHEN referer IS NULL OR referer = \'\' THEN 1 ELSE 0 END) as direct')
+            ->first();
+
+        $topReferers = $window()
+            ->whereNotNull('referer')
+            ->where('referer', '!=', '')
+            ->selectRaw('referer, COUNT(*) as aggregate, MAX(referer_internal) as internal')
+            ->groupBy('referer')
+            ->orderByDesc('aggregate')
+            ->limit($limit)
+            ->get()
+            ->map(fn ($row) => [
+                'referer'  => $row->referer,
+                'count'    => (int) $row->aggregate,
+                'internal' => (bool) $row->internal,
+            ])
+            ->all();
+
         return [
             'from'            => $start->toDateTimeString(),
             'to'              => $end->toDateTimeString(),
@@ -95,6 +124,17 @@ class ReportBuilder
             'top_paths'       => $topPaths,
             'top_ips'         => $topIps,
             'top_user_agents' => $topUserAgents,
+            'traffic'         => [
+                'bots'    => $bots,
+                'humans'  => $humans,
+                'unknown' => max(0, $total - $bots - $humans),
+            ],
+            'referers'        => [
+                'internal' => (int) ($referer->internal ?? 0),
+                'external' => (int) ($referer->external ?? 0),
+                'direct'   => (int) ($referer->direct ?? 0),
+            ],
+            'top_referers'    => $topReferers,
             'series'          => $this->series($start, $end),
         ];
     }

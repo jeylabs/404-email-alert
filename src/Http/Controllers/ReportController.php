@@ -5,6 +5,7 @@ namespace Jeylabs\PageNotFoundEmailAlert\Http\Controllers;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Jeylabs\PageNotFoundEmailAlert\Http\Middleware\EnsureAllowedGoogleUser;
+use Jeylabs\PageNotFoundEmailAlert\Models\RequestLog;
 use Jeylabs\PageNotFoundEmailAlert\Reporting\ReportBuilder;
 
 class ReportController
@@ -30,6 +31,60 @@ class ReportController
         return view('page-not-found-email-alert::dashboard', [
             'report'    => $this->report($request),
             'hours'     => $this->hours($request),
+            'authEmail' => $request->hasSession()
+                ? $request->session()->get(EnsureAllowedGoogleUser::SESSION_KEY)
+                : null,
+        ]);
+    }
+
+    /**
+     * Drill-down: a paginated, filterable list of individual recorded requests.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Contracts\View\View
+     */
+    public function requests(Request $request)
+    {
+        [$start, $end] = $this->builder->window(
+            $this->hours($request),
+            null,
+            (array) config('page-not-found-email-alert.report', [])
+        );
+
+        $filters = [
+            'path'   => (string) $request->query('path', ''),
+            'search' => (string) $request->query('search', ''),
+            'status' => (string) $request->query('status', ''),
+            'bot'    => (string) $request->query('bot', ''),
+            'hours'  => $this->hours($request),
+        ];
+
+        $query = RequestLog::query()
+            ->between($start, $end)
+            ->orderByDesc('created_at');
+
+        if ($filters['path'] !== '') {
+            $query->where('path', $filters['path']);
+        }
+
+        if ($filters['search'] !== '') {
+            $query->where('path', 'like', '%'.$filters['search'].'%');
+        }
+
+        if ($filters['status'] !== '') {
+            $query->where('status_code', (int) $filters['status']);
+        }
+
+        if ($filters['bot'] !== '') {
+            $query->where('is_bot', (bool) (int) $filters['bot']);
+        }
+
+        $rows = $query->paginate(50)->withQueryString();
+
+        return view('page-not-found-email-alert::requests', [
+            'rows'      => $rows,
+            'filters'   => $filters,
+            'window'    => ['from' => $start->toDateTimeString(), 'to' => $end->toDateTimeString()],
             'authEmail' => $request->hasSession()
                 ? $request->session()->get(EnsureAllowedGoogleUser::SESSION_KEY)
                 : null,

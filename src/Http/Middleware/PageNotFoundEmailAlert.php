@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Cache;
 use Jeylabs\PageNotFoundEmailAlert\Jobs\RecordBadRequest;
 use Jeylabs\PageNotFoundEmailAlert\Mail\PageNotFound;
 use Jeylabs\PageNotFoundEmailAlert\Models\RequestLog;
+use Jeylabs\PageNotFoundEmailAlert\Support\UserAgentClassifier;
 use Symfony\Component\HttpFoundation\Response;
 
 class PageNotFoundEmailAlert
@@ -83,13 +84,15 @@ class PageNotFoundEmailAlert
     protected function record(Request $request, $status)
     {
         $attributes = [
-            'status_code' => (int) $status,
-            'method'      => $request->method(),
-            'url'         => $request->fullUrl(),
-            'path'        => $request->path(),
-            'referer'     => $request->headers->get('referer'),
-            'ip'          => $request->ip(),
-            'user_agent'  => $request->userAgent(),
+            'status_code'      => (int) $status,
+            'method'           => $request->method(),
+            'url'              => $request->fullUrl(),
+            'path'             => $request->path(),
+            'referer'          => $request->headers->get('referer'),
+            'ip'               => $request->ip(),
+            'user_agent'       => $request->userAgent(),
+            'is_bot'           => UserAgentClassifier::isBot($request->userAgent()),
+            'referer_internal' => $this->refererInternal($request),
         ];
 
         try {
@@ -258,6 +261,30 @@ class PageNotFoundEmailAlert
                 'url'       => $data['url'],
             ]);
         }
+    }
+
+    /**
+     * Classify the referer as internal (same host as this request) or external.
+     * Returns null when there is no usable referer (direct traffic).
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return bool|null
+     */
+    protected function refererInternal(Request $request)
+    {
+        $referer = $request->headers->get('referer');
+
+        if (! $referer) {
+            return null;
+        }
+
+        $host = parse_url($referer, PHP_URL_HOST);
+
+        if (! $host) {
+            return null;
+        }
+
+        return strtolower($host) === strtolower((string) $request->getHost());
     }
 
     /**

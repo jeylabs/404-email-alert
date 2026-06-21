@@ -252,6 +252,31 @@ data is exposed under `series` in the API payload (`series.unit` and an array of
 `series.points`, each with `period`, `total`, `client_errors`, `server_errors`),
 so you can build your own charts.
 
+#### Bot vs human & referer insight
+
+Every recorded request is classified at write time:
+
+* **Bot vs human** — the user agent is matched against a built-in list of
+  crawlers, HTTP clients, headless browsers and security scanners (extend it via
+  `record.bot_user_agents`). This separates real broken links from scanner noise.
+* **Referer** — classified as **internal** (the referer host matches your app's
+  host), **external**, or **direct** (no referer). *Internal referers are your
+  own pages linking to dead URLs — the most actionable 404s.*
+
+The dashboard surfaces both as summary cards plus a **"Top referers"** table, the
+digest email includes the splits, and the API exposes them under `traffic`
+(`humans`/`bots`/`unknown`), `referers` (`internal`/`external`/`direct`) and
+`top_referers`.
+
+#### Drill-down & filtering
+
+Click any path on the dashboard to open **`/page-not-found/requests`** — a
+paginated list of the individual hits behind the aggregates. It supports
+filtering by exact path, free-text path search, status code, window, and
+human/bot, all via query parameters (e.g.
+`/page-not-found/requests?search=wp-admin&bot=1`). The route lives in the
+dashboard group, so it inherits the same access control.
+
 ### Access control: Sign in with Google
 
 The dashboard and API are protected by **Sign in with Google** out of the box
@@ -320,8 +345,9 @@ each request is handled, the middleware inspects the response:
   dispatched.
 * When it is any `4xx`/`5xx` (and not ignored), it is recorded for reporting —
   by default via a queued job so the response is never slowed by a database
-  write. Recording is skipped silently until the migration has run, so it never
-  spams your logs.
+  write. The user agent (bot vs human) and referer (internal/external/direct)
+  are classified as the row is written. Recording is skipped silently until the
+  migration has run, so it never spams your logs.
 
 Mail and storage failures are caught, logged, and never interfere with the
 response returned to the user. The digest command and the dashboard/API read

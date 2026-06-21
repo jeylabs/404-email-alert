@@ -131,6 +131,7 @@
             </table>
         </section>
 
+        @php $hasRequests = \Illuminate\Support\Facades\Route::has('page-not-found.requests'); @endphp
         <section>
             <h2>Top paths</h2>
             <table>
@@ -138,7 +139,13 @@
                 <tbody>
                 @foreach ($report['top_paths'] as $row)
                     <tr>
-                        <td><code>{{ $row['path'] }}</code></td>
+                        <td>
+                            @if ($hasRequests)
+                                <a href="{{ route('page-not-found.requests', ['path' => $row['path'], 'hours' => $hours]) }}"><code>{{ $row['path'] }}</code></a>
+                            @else
+                                <code>{{ $row['path'] }}</code>
+                            @endif
+                        </td>
                         <td>{{ $row['last_seen'] }}</td>
                         <td class="num">{{ number_format($row['count']) }}</td>
                     </tr>
@@ -146,6 +153,45 @@
                 </tbody>
             </table>
         </section>
+
+        <div class="cards">
+            <div class="card">
+                <div class="label">Humans</div>
+                <div class="value">{{ number_format($report['traffic']['humans']) }}</div>
+            </div>
+            <div class="card">
+                <div class="label">Bots / scanners</div>
+                <div class="value">{{ number_format($report['traffic']['bots']) }}</div>
+            </div>
+            <div class="card">
+                <div class="label">Internal referers</div>
+                <div class="value">{{ number_format($report['referers']['internal']) }}</div>
+            </div>
+        </div>
+        <p class="muted" style="margin: -16px 0 24px; font-size: 13px;">
+            Referers: {{ number_format($report['referers']['internal']) }} internal ·
+            {{ number_format($report['referers']['external']) }} external ·
+            {{ number_format($report['referers']['direct']) }} direct.
+            <strong>Internal referers are your own pages linking to dead URLs — the most actionable.</strong>
+        </p>
+
+        @if (! empty($report['top_referers']))
+            <section>
+                <h2>Top referers</h2>
+                <table>
+                    <thead><tr><th>Referer</th><th>Source</th><th class="num">Count</th></tr></thead>
+                    <tbody>
+                    @foreach ($report['top_referers'] as $row)
+                        <tr>
+                            <td><code>{{ $row['referer'] }}</code></td>
+                            <td>{!! $row['internal'] ? '<span style="color:#3730a3;">internal</span>' : '<span style="color:#6b7280;">external</span>' !!}</td>
+                            <td class="num">{{ number_format($row['count']) }}</td>
+                        </tr>
+                    @endforeach
+                    </tbody>
+                </table>
+            </section>
+        @endif
 
         @if (! empty($report['top_ips']))
             <section>

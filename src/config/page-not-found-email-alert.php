@@ -109,6 +109,10 @@ return [
         // When "statuses" is empty, record any response with a status >= this.
         'minimum_status' => 400,
 
+        // Extra substrings that mark a user agent as a bot, merged with the
+        // built-in list (case-insensitive), e.g. ['mycompany-monitor'].
+        'bot_user_agents' => [],
+
         // Days of history to keep. Used by `page-not-found:report --prune`.
         // Set to 0 to disable pruning.
         'retention_days' => env('PAGE_NOT_FOUND_RECORD_RETENTION', 30),

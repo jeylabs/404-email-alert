@@ -47,8 +47,10 @@ class RequestLog extends Model
      * @var array<string, string>
      */
     protected $casts = [
-        'status_code' => 'integer',
-        'created_at'  => 'datetime',
+        'status_code'      => 'integer',
+        'is_bot'           => 'boolean',
+        'referer_internal' => 'boolean',
+        'created_at'       => 'datetime',
     ];
 
     /**
