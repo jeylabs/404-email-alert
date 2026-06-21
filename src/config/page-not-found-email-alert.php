@@ -113,6 +113,34 @@ return [
         // Set to 0 to disable pruning.
         'retention_days' => env('PAGE_NOT_FOUND_RECORD_RETENTION', 30),
 
+        /*
+        |----------------------------------------------------------------------
+        | Asynchronous Recording
+        |----------------------------------------------------------------------
+        |
+        | When enabled, the database write is pushed onto a queue instead of
+        | running inside the request, keeping error responses fast. With a real
+        | queue connection (database/redis/sqs) this runs on a worker; with the
+        | "sync" connection it runs inline as before.
+        |
+        | NOTE: with a non-sync default queue, a worker must be running or the
+        | records will not be written. Set enabled => false to always write
+        | synchronously within the request.
+        |
+        */
+
+        'queue' => [
+
+            'enabled'    => env('PAGE_NOT_FOUND_RECORD_QUEUE', true),
+
+            // Queue connection to dispatch on (null = the app's default).
+            'connection' => env('PAGE_NOT_FOUND_RECORD_QUEUE_CONNECTION'),
+
+            // Queue name to dispatch on (null = the default queue).
+            'queue'      => env('PAGE_NOT_FOUND_RECORD_QUEUE_NAME'),
+
+        ],
+
     ],
 
     /*

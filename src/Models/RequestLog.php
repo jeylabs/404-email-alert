@@ -25,6 +25,16 @@ class RequestLog extends Model
     const UPDATED_AT = null;
 
     /**
+     * Cached result of the table-existence check, so the schema is not probed
+     * on every recorded request within a process. Only the positive result is
+     * cached; a missing table is re-checked so recording starts as soon as the
+     * migration has run.
+     *
+     * @var bool|null
+     */
+    protected static $tableExists = null;
+
+    /**
      * All attributes are mass assignable.
      *
      * @var array<int, string>
@@ -59,5 +69,30 @@ class RequestLog extends Model
     public function scopeBetween($query, $start, $end)
     {
         return $query->whereBetween('created_at', [$start, $end]);
+    }
+
+    /**
+     * Whether the underlying table exists. Used to skip recording silently
+     * until the migration has been run.
+     *
+     * @return bool
+     */
+    public static function tableExists()
+    {
+        if (static::$tableExists === true) {
+            return true;
+        }
+
+        $model = new static;
+
+        $exists = $model->getConnection()
+            ->getSchemaBuilder()
+            ->hasTable($model->getTable());
+
+        if ($exists) {
+            static::$tableExists = true;
+        }
+
+        return $exists;
     }
 }
