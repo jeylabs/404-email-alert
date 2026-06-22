@@ -16,6 +16,47 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Notification Channels
+    |--------------------------------------------------------------------------
+    |
+    | Where notifications (the instant 404 alert, the digest report and the
+    | spike alerts) are delivered. Email is on by default; the chat channels
+    | post to an incoming webhook URL and are enabled per provider. Slack,
+    | Discord and Teams each accept their incoming-webhook JSON; "webhook" posts
+    | a generic JSON payload to any endpoint you choose.
+    |
+    */
+
+    'channels' => [
+
+        'mail' => [
+            'enabled' => env('PAGE_NOT_FOUND_MAIL_ENABLED', true),
+        ],
+
+        'slack' => [
+            'enabled'     => env('PAGE_NOT_FOUND_SLACK_ENABLED', false),
+            'webhook_url' => env('PAGE_NOT_FOUND_SLACK_WEBHOOK'),
+        ],
+
+        'discord' => [
+            'enabled'     => env('PAGE_NOT_FOUND_DISCORD_ENABLED', false),
+            'webhook_url' => env('PAGE_NOT_FOUND_DISCORD_WEBHOOK'),
+        ],
+
+        'teams' => [
+            'enabled'     => env('PAGE_NOT_FOUND_TEAMS_ENABLED', false),
+            'webhook_url' => env('PAGE_NOT_FOUND_TEAMS_WEBHOOK'),
+        ],
+
+        'webhook' => [
+            'enabled' => env('PAGE_NOT_FOUND_WEBHOOK_ENABLED', false),
+            'url'     => env('PAGE_NOT_FOUND_WEBHOOK_URL'),
+        ],
+
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Recipients
     |--------------------------------------------------------------------------
     |

@@ -62,6 +62,47 @@ PAGE_NOT_FOUND_ALERT_THROTTLE=60
 Alerts require a configured mail driver. If no recipients are set, or `enabled`
 is `false`, no email is sent.
 
+## Notification channels (Slack, Teams, Discord, webhook)
+
+Every notification — the instant 404 alert, the digest report and the spike
+alerts — is a Laravel notification that can be delivered to **email and/or chat**.
+Email is on by default; the chat channels post to an incoming-webhook URL and are
+enabled per provider:
+
+```dotenv
+# Slack / Discord / Teams each take an incoming webhook URL
+PAGE_NOT_FOUND_SLACK_ENABLED=true
+PAGE_NOT_FOUND_SLACK_WEBHOOK=https://hooks.slack.com/services/XXX/YYY/ZZZ
+
+PAGE_NOT_FOUND_DISCORD_ENABLED=true
+PAGE_NOT_FOUND_DISCORD_WEBHOOK=https://discord.com/api/webhooks/XXX/YYY
+
+PAGE_NOT_FOUND_TEAMS_ENABLED=true
+PAGE_NOT_FOUND_TEAMS_WEBHOOK=https://outlook.office.com/webhook/XXX
+
+# Generic JSON POST to any endpoint of your choosing
+PAGE_NOT_FOUND_WEBHOOK_ENABLED=true
+PAGE_NOT_FOUND_WEBHOOK_URL=https://ops.example.com/hooks/page-not-found
+
+# Turn email off if you only want chat
+PAGE_NOT_FOUND_MAIL_ENABLED=false
+```
+
+| Key                       | Description                                                              |
+|---------------------------|--------------------------------------------------------------------------|
+| `channels.mail.enabled`   | Deliver notifications by email (default `true`).                         |
+| `channels.slack`          | `enabled` + `webhook_url` for a Slack incoming webhook.                  |
+| `channels.discord`        | `enabled` + `webhook_url` for a Discord webhook.                         |
+| `channels.teams`          | `enabled` + `webhook_url` for a Microsoft Teams connector.              |
+| `channels.webhook`        | `enabled` + `url` for a generic JSON POST (your own integration).        |
+
+A channel is used only when it is enabled **and** configured (a webhook URL for
+chat, recipients for mail), so the digest/alerts are sent to whichever channels
+you've set up. Slack, Discord and Teams each receive a message formatted for
+their incoming-webhook API; the generic webhook receives a provider-agnostic JSON
+body (`event`, `title`, `summary`, `level`, `url`, `fields`). Chat-delivery
+failures are logged and never interfere with the request.
+
 ## Reporting on not-so-great requests
 
 It works out of the box: install the package, run `php artisan migrate`, and
@@ -74,7 +115,9 @@ At a glance — features and their default state:
 
 | Feature                | Default | Toggle (env)                       |
 |------------------------|---------|------------------------------------|
-| Instant 404 email      | on*     | `PAGE_NOT_FOUND_ALERT_ENABLED`     |
+| Instant 404 alert      | on*     | `PAGE_NOT_FOUND_ALERT_ENABLED`     |
+| Email delivery         | on      | `PAGE_NOT_FOUND_MAIL_ENABLED`      |
+| Slack/Teams/Discord    | off     | `PAGE_NOT_FOUND_SLACK_ENABLED` …   |
 | Recording 4xx/5xx      | on      | `PAGE_NOT_FOUND_RECORD_ENABLED`    |
 | Digest report          | on*     | `PAGE_NOT_FOUND_REPORT_ENABLED`    |
 | Auto-scheduled digest  | on*     | `PAGE_NOT_FOUND_REPORT_SCHEDULE`   |

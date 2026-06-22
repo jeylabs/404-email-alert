@@ -4,9 +4,9 @@ namespace Jeylabs\PageNotFoundEmailAlert\Tests;
 
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Mail;
-use Jeylabs\PageNotFoundEmailAlert\Mail\ThresholdAlert;
+use Illuminate\Support\Facades\Notification;
 use Jeylabs\PageNotFoundEmailAlert\Models\RequestLog;
+use Jeylabs\PageNotFoundEmailAlert\Notifications\ThresholdAlertNotification;
 use Jeylabs\PageNotFoundEmailAlert\Reporting\ThresholdMonitor;
 
 class ThresholdAlertTest extends TestCase
@@ -40,51 +40,54 @@ class ThresholdAlertTest extends TestCase
 
     public function test_it_alerts_when_a_rule_is_breached()
     {
-        Mail::fake();
+        Notification::fake();
         $this->seedStatus(500, 3);
 
         $triggered = app(ThresholdMonitor::class)->evaluate();
 
         $this->assertCount(1, $triggered);
-        Mail::assertSent(ThresholdAlert::class, function ($mail) {
-            return $mail->hasTo('ops@example.com')
-                && $mail->alert['count'] === 3
-                && $mail->alert['name'] === 'Server error spike';
-        });
+        Notification::assertSentOnDemand(
+            ThresholdAlertNotification::class,
+            function ($notification, $channels, $notifiable) {
+                return in_array('ops@example.com', (array) ($notifiable->routes['mail'] ?? []))
+                    && $notification->alert['count'] === 3
+                    && $notification->alert['name'] === 'Server error spike';
+            }
+        );
     }
 
     public function test_it_does_not_alert_below_the_threshold()
     {
-        Mail::fake();
+        Notification::fake();
         $this->seedStatus(500, 2);
 
         $this->assertSame([], app(ThresholdMonitor::class)->evaluate());
-        Mail::assertNothingSent();
+        Notification::assertNothingSent();
     }
 
     public function test_it_ignores_records_outside_the_window()
     {
-        Mail::fake();
+        Notification::fake();
         $this->seedStatus(500, 5, 30); // 30 minutes ago, window is 5
 
         $this->assertSame([], app(ThresholdMonitor::class)->evaluate());
-        Mail::assertNothingSent();
+        Notification::assertNothingSent();
     }
 
     public function test_cooldown_suppresses_repeat_alerts()
     {
-        Mail::fake();
+        Notification::fake();
         $this->seedStatus(500, 4);
 
         app(ThresholdMonitor::class)->evaluate();
         app(ThresholdMonitor::class)->evaluate(); // within cooldown
 
-        Mail::assertSent(ThresholdAlert::class, 1);
+        Notification::assertSentOnDemandTimes(ThresholdAlertNotification::class, 1);
     }
 
     public function test_realtime_evaluation_is_rate_limited_by_check_interval()
     {
-        Mail::fake();
+        Notification::fake();
         config()->set('page-not-found-email-alert.alerts.cooldown', 0); // isolate the interval gate
         $this->seedStatus(500, 5);
 
@@ -92,12 +95,12 @@ class ThresholdAlertTest extends TestCase
         Cache::put('pnf:monitor:last-run', true, 60);    // simulate interval not elapsed
         app(ThresholdMonitor::class)->maybeEvaluate();   // suppressed by interval
 
-        Mail::assertSent(ThresholdAlert::class, 1);
+        Notification::assertSentOnDemandTimes(ThresholdAlertNotification::class, 1);
     }
 
     public function test_a_recorded_500_triggers_a_realtime_alert()
     {
-        Mail::fake();
+        Notification::fake();
         config()->set('page-not-found-email-alert.alerts.realtime.check_interval', 0);
         \Illuminate\Support\Facades\Route::get('/boom', fn () => response('x', 500));
 
@@ -106,18 +109,18 @@ class ThresholdAlertTest extends TestCase
         $this->get('/boom');
         $this->get('/boom');
 
-        Mail::assertSent(ThresholdAlert::class);
+        Notification::assertSentOnDemand(ThresholdAlertNotification::class);
     }
 
     public function test_monitor_command_dry_run_reports_without_sending()
     {
-        Mail::fake();
+        Notification::fake();
         $this->seedStatus(500, 3);
 
         $this->artisan('page-not-found:monitor', ['--dry' => true])
             ->expectsOutputToContain('BREACHED')
             ->assertSuccessful();
 
-        Mail::assertNothingSent();
+        Notification::assertNothingSent();
     }
 }

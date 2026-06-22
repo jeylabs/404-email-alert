@@ -4,10 +4,9 @@ namespace Jeylabs\PageNotFoundEmailAlert\Reporting;
 
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
-use Jeylabs\PageNotFoundEmailAlert\Mail\ThresholdAlert;
 use Jeylabs\PageNotFoundEmailAlert\Models\RequestLog;
+use Jeylabs\PageNotFoundEmailAlert\Notifications\Notifier;
+use Jeylabs\PageNotFoundEmailAlert\Notifications\ThresholdAlertNotification;
 
 /**
  * Evaluates threshold/spike rules against recently recorded requests and emails
@@ -200,20 +199,14 @@ class ThresholdMonitor
     {
         $recipients = $this->recipients($config);
 
-        if (empty($recipients)) {
+        if (! Notifier::hasActiveChannels($recipients)) {
             return;
         }
 
-        try {
-            Mail::to($recipients)->send(
-                new ThresholdAlert($payload, (array) config('page-not-found-email-alert', []))
-            );
-        } catch (\Throwable $e) {
-            Log::error('Failed to send threshold alert: '.$e->getMessage(), [
-                'exception' => $e,
-                'rule'      => $payload['name'],
-            ]);
-        }
+        Notifier::send(
+            new ThresholdAlertNotification($payload, (array) config('page-not-found-email-alert', [])),
+            $recipients
+        );
     }
 
     /**
