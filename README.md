@@ -62,6 +62,47 @@ PAGE_NOT_FOUND_ALERT_THROTTLE=60
 Alerts require a configured mail driver. If no recipients are set, or `enabled`
 is `false`, no email is sent.
 
+## Notification channels (Slack, Teams, Discord, webhook)
+
+Every notification — the instant 404 alert, the digest report and the spike
+alerts — is a Laravel notification that can be delivered to **email and/or chat**.
+Email is on by default; the chat channels post to an incoming-webhook URL and are
+enabled per provider:
+
+```dotenv
+# Slack / Discord / Teams each take an incoming webhook URL
+PAGE_NOT_FOUND_SLACK_ENABLED=true
+PAGE_NOT_FOUND_SLACK_WEBHOOK=https://hooks.slack.com/services/XXX/YYY/ZZZ
+
+PAGE_NOT_FOUND_DISCORD_ENABLED=true
+PAGE_NOT_FOUND_DISCORD_WEBHOOK=https://discord.com/api/webhooks/XXX/YYY
+
+PAGE_NOT_FOUND_TEAMS_ENABLED=true
+PAGE_NOT_FOUND_TEAMS_WEBHOOK=https://outlook.office.com/webhook/XXX
+
+# Generic JSON POST to any endpoint of your choosing
+PAGE_NOT_FOUND_WEBHOOK_ENABLED=true
+PAGE_NOT_FOUND_WEBHOOK_URL=https://ops.example.com/hooks/page-not-found
+
+# Turn email off if you only want chat
+PAGE_NOT_FOUND_MAIL_ENABLED=false
+```
+
+| Key                       | Description                                                              |
+|---------------------------|--------------------------------------------------------------------------|
+| `channels.mail.enabled`   | Deliver notifications by email (default `true`).                         |
+| `channels.slack`          | `enabled` + `webhook_url` for a Slack incoming webhook.                  |
+| `channels.discord`        | `enabled` + `webhook_url` for a Discord webhook.                         |
+| `channels.teams`          | `enabled` + `webhook_url` for a Microsoft Teams connector.              |
+| `channels.webhook`        | `enabled` + `url` for a generic JSON POST (your own integration).        |
+
+A channel is used only when it is enabled **and** configured (a webhook URL for
+chat, recipients for mail), so the digest/alerts are sent to whichever channels
+you've set up. Slack, Discord and Teams each receive a message formatted for
+their incoming-webhook API; the generic webhook receives a provider-agnostic JSON
+body (`event`, `title`, `summary`, `level`, `url`, `fields`). Chat-delivery
+failures are logged and never interfere with the request.
+
 ## Reporting on not-so-great requests
 
 It works out of the box: install the package, run `php artisan migrate`, and
@@ -74,10 +115,13 @@ At a glance — features and their default state:
 
 | Feature                | Default | Toggle (env)                       |
 |------------------------|---------|------------------------------------|
-| Instant 404 email      | on*     | `PAGE_NOT_FOUND_ALERT_ENABLED`     |
+| Instant 404 alert      | on*     | `PAGE_NOT_FOUND_ALERT_ENABLED`     |
+| Email delivery         | on      | `PAGE_NOT_FOUND_MAIL_ENABLED`      |
+| Slack/Teams/Discord    | off     | `PAGE_NOT_FOUND_SLACK_ENABLED` …   |
 | Recording 4xx/5xx      | on      | `PAGE_NOT_FOUND_RECORD_ENABLED`    |
 | Digest report          | on*     | `PAGE_NOT_FOUND_REPORT_ENABLED`    |
 | Auto-scheduled digest  | on*     | `PAGE_NOT_FOUND_REPORT_SCHEDULE`   |
+| Threshold/spike alerts | off     | `PAGE_NOT_FOUND_ALERTS_ENABLED`    |
 | HTML dashboard         | off     | `PAGE_NOT_FOUND_DASHBOARD_ENABLED` |
 | JSON API               | off     | `PAGE_NOT_FOUND_API_ENABLED`       |
 | Google-login gate      | on      | `PAGE_NOT_FOUND_AUTH_ENABLED`      |
@@ -126,6 +170,40 @@ worker; with the `sync` connection it runs inline exactly as before. **If your
 default queue connection is not `sync`, make sure a worker is running** —
 otherwise records will sit unprocessed. To always write synchronously inside the
 request, set `PAGE_NOT_FOUND_RECORD_QUEUE=false`.
+
+### Threshold / spike alerts
+
+Beyond the per-URL 404 email and the periodic digest, the package can send a
+near-real-time alert when error volume crosses a threshold — e.g. *"more than 25
+server errors in 5 minutes"* — so you hear about an outage or attack as it
+happens. Rules are evaluated as requests are recorded (rate-limited so the check
+runs at most once per `check_interval` seconds) and, when scheduled, on a fixed
+cadence too. A per-rule cooldown prevents repeat emails.
+
+Disabled by default (the thresholds are traffic-specific). Enable and tune:
+
+```dotenv
+PAGE_NOT_FOUND_ALERTS_ENABLED=true
+PAGE_NOT_FOUND_ALERTS_TO=ops@example.com   # falls back to report.to, then the alert "to"
+PAGE_NOT_FOUND_ALERTS_COOLDOWN=30          # minutes between repeat alerts per rule
+```
+
+Rules live in the published config under `alerts.rules`; each has a `name`, a
+status range (`min_status`/`max_status`) or explicit `statuses` list, a
+`threshold` count and a `window` in minutes:
+
+```php
+'rules' => [
+    ['name' => 'Server error spike', 'min_status' => 500, 'threshold' => 25, 'window' => 5],
+    ['name' => 'Client error surge', 'min_status' => 400, 'max_status' => 499, 'threshold' => 200, 'window' => 5],
+],
+```
+
+The `page-not-found:monitor` command evaluates the rules on demand; add `--dry`
+to print each rule's current count and breach status without sending anything.
+When `alerts.schedule.enabled` is on (default), the monitor is auto-registered on
+the scheduler every minute, so alerts fire reliably even with bursty traffic
+(requires `schedule:run` to be running).
 
 ### The report command
 
@@ -210,6 +288,38 @@ Both accept a `?hours=` query parameter to change the window (e.g.
 `/page-not-found?hours=168` for the last 7 days). The dashboard view can be
 customised by publishing the views; its template is `dashboard.blade.php`.
 
+The dashboard opens with a **"Requests over time"** chart — a zero-filled,
+stacked (4xx/5xx) time-series bucketed by minute/hour/day depending on the
+window — and the digest email includes a **"Busiest periods"** summary. The same
+data is exposed under `series` in the API payload (`series.unit` and an array of
+`series.points`, each with `period`, `total`, `client_errors`, `server_errors`),
+so you can build your own charts.
+
+#### Bot vs human & referer insight
+
+Every recorded request is classified at write time:
+
+* **Bot vs human** — the user agent is matched against a built-in list of
+  crawlers, HTTP clients, headless browsers and security scanners (extend it via
+  `record.bot_user_agents`). This separates real broken links from scanner noise.
+* **Referer** — classified as **internal** (the referer host matches your app's
+  host), **external**, or **direct** (no referer). *Internal referers are your
+  own pages linking to dead URLs — the most actionable 404s.*
+
+The dashboard surfaces both as summary cards plus a **"Top referers"** table, the
+digest email includes the splits, and the API exposes them under `traffic`
+(`humans`/`bots`/`unknown`), `referers` (`internal`/`external`/`direct`) and
+`top_referers`.
+
+#### Drill-down & filtering
+
+Click any path on the dashboard to open **`/page-not-found/requests`** — a
+paginated list of the individual hits behind the aggregates. It supports
+filtering by exact path, free-text path search, status code, window, and
+human/bot, all via query parameters (e.g.
+`/page-not-found/requests?search=wp-admin&bot=1`). The route lives in the
+dashboard group, so it inherits the same access control.
+
 ### Access control: Sign in with Google
 
 The dashboard and API are protected by **Sign in with Google** out of the box
@@ -278,8 +388,9 @@ each request is handled, the middleware inspects the response:
   dispatched.
 * When it is any `4xx`/`5xx` (and not ignored), it is recorded for reporting —
   by default via a queued job so the response is never slowed by a database
-  write. Recording is skipped silently until the migration has run, so it never
-  spams your logs.
+  write. The user agent (bot vs human) and referer (internal/external/direct)
+  are classified as the row is written. Recording is skipped silently until the
+  migration has run, so it never spams your logs.
 
 Mail and storage failures are caught, logged, and never interfere with the
 response returned to the user. The digest command and the dashboard/API read

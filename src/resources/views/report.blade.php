@@ -29,6 +29,18 @@
             <td style="font-weight: bold;">Server errors (5xx)</td>
             <td>{{ number_format($report['server_errors']) }}</td>
         </tr>
+        @if (isset($report['traffic']))
+            <tr style="background: #f7f7f7;">
+                <td style="font-weight: bold;">Humans / bots</td>
+                <td>{{ number_format($report['traffic']['humans']) }} human · {{ number_format($report['traffic']['bots']) }} bot/scanner</td>
+            </tr>
+        @endif
+        @if (isset($report['referers']))
+            <tr>
+                <td style="font-weight: bold;">Referers</td>
+                <td>{{ number_format($report['referers']['internal']) }} internal · {{ number_format($report['referers']['external']) }} external · {{ number_format($report['referers']['direct']) }} direct</td>
+            </tr>
+        @endif
     </table>
 
     @if ($report['total'] === 0)
@@ -47,6 +59,34 @@
                 </tr>
             @endforeach
         </table>
+
+        @php
+            $busiest = collect($report['series']['points'] ?? [])
+                ->filter(fn ($p) => $p['total'] > 0)
+                ->sortByDesc('total')
+                ->take(5)
+                ->values();
+            $peak = $busiest->max('total') ?: 1;
+        @endphp
+        @if ($busiest->isNotEmpty())
+            <h3 style="margin-bottom: 4px;">Busiest periods <span style="color:#999; font-weight:normal;">(per {{ $report['series']['unit'] }})</span></h3>
+            <table cellpadding="0" cellspacing="0" border="0" style="border-collapse: collapse; width: 100%; max-width: 680px; margin-bottom: 24px;">
+                <tr>
+                    <th style="{{ $head }}">Period</th>
+                    <th style="{{ $head }}">Trend</th>
+                    <th style="{{ $head }}">Count</th>
+                </tr>
+                @foreach ($busiest as $row)
+                    <tr>
+                        <td style="{{ $cell }}">{{ $row['period'] }}</td>
+                        <td style="{{ $cell }} width: 50%;">
+                            <div style="background:#2563eb; height:10px; border-radius:3px; width: {{ max(4, (int) round($row['total'] / $peak * 100)) }}%;"></div>
+                        </td>
+                        <td style="{{ $cell }}">{{ number_format($row['total']) }}</td>
+                    </tr>
+                @endforeach
+            </table>
+        @endif
 
         <h3 style="margin-bottom: 4px;">Top paths</h3>
         <table cellpadding="0" cellspacing="0" border="0" style="border-collapse: collapse; width: 100%; max-width: 680px; margin-bottom: 24px;">

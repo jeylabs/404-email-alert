@@ -6,6 +6,7 @@ use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
+use Jeylabs\PageNotFoundEmailAlert\Console\MonitorThresholds;
 use Jeylabs\PageNotFoundEmailAlert\Console\SendRequestReport;
 use Jeylabs\PageNotFoundEmailAlert\Http\Controllers\AuthController;
 use Jeylabs\PageNotFoundEmailAlert\Http\Controllers\ReportController;
@@ -52,6 +53,7 @@ class PageNotFoundEmailAlertServiceProvider extends ServiceProvider
 
             $this->commands([
                 SendRequestReport::class,
+                MonitorThresholds::class,
             ]);
         }
 
@@ -91,6 +93,8 @@ class PageNotFoundEmailAlertServiceProvider extends ServiceProvider
             ], function () {
                 Route::get('/', [ReportController::class, 'index'])
                     ->name('page-not-found.dashboard');
+                Route::get('requests', [ReportController::class, 'requests'])
+                    ->name('page-not-found.requests');
             });
         }
 
@@ -164,20 +168,41 @@ class PageNotFoundEmailAlertServiceProvider extends ServiceProvider
             $report = (array) config('page-not-found-email-alert.report', []);
             $scheduleConfig = (array) ($report['schedule'] ?? []);
 
-            if (! ($report['enabled'] ?? false) || ! ($scheduleConfig['enabled'] ?? false)) {
-                return;
+            if (($report['enabled'] ?? false) && ($scheduleConfig['enabled'] ?? false)) {
+                $command = 'page-not-found:report';
+
+                if ($scheduleConfig['prune'] ?? false) {
+                    $command .= ' --prune';
+                }
+
+                $this->applyFrequency(
+                    $schedule->command($command)->withoutOverlapping(),
+                    $scheduleConfig
+                );
             }
 
-            $command = 'page-not-found:report';
-
-            if ($scheduleConfig['prune'] ?? false) {
-                $command .= ' --prune';
-            }
-
-            $event = $schedule->command($command)->withoutOverlapping();
-
-            $this->applyFrequency($event, $scheduleConfig);
+            $this->scheduleMonitor($schedule);
         });
+    }
+
+    /**
+     * Register the threshold monitor on the scheduler when enabled.
+     *
+     * @param  \Illuminate\Console\Scheduling\Schedule  $schedule
+     * @return void
+     */
+    protected function scheduleMonitor(Schedule $schedule)
+    {
+        $alerts = (array) config('page-not-found-email-alert.alerts', []);
+        $monitorSchedule = (array) ($alerts['schedule'] ?? []);
+
+        if (! ($alerts['enabled'] ?? false) || ! ($monitorSchedule['enabled'] ?? false)) {
+            return;
+        }
+
+        $schedule->command('page-not-found:monitor')
+            ->cron($monitorSchedule['cron'] ?? '* * * * *')
+            ->withoutOverlapping();
     }
 
     /**

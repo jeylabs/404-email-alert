@@ -4,9 +4,9 @@ namespace Jeylabs\PageNotFoundEmailAlert\Console;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Mail;
-use Jeylabs\PageNotFoundEmailAlert\Mail\RequestReport;
 use Jeylabs\PageNotFoundEmailAlert\Models\RequestLog;
+use Jeylabs\PageNotFoundEmailAlert\Notifications\Notifier;
+use Jeylabs\PageNotFoundEmailAlert\Notifications\RequestReportNotification;
 use Jeylabs\PageNotFoundEmailAlert\Reporting\ReportBuilder;
 
 class SendRequestReport extends Command
@@ -66,20 +66,19 @@ class SendRequestReport extends Command
 
         $recipients = $this->resolveRecipients($config, $reportConfig);
 
-        if (empty($recipients)) {
+        if (! Notifier::hasActiveChannels($recipients)) {
             // Treat "not configured yet" as a benign skip so scheduled runs do
-            // not show up as failures before recipients have been set.
-            $this->warn('No report recipients configured; skipping. Set PAGE_NOT_FOUND_REPORT_TO or pass --to.');
+            // not show up as failures before any channel has been set up.
+            $this->warn('No notification channels configured; skipping. Set PAGE_NOT_FOUND_REPORT_TO or a chat webhook.');
 
             return self::SUCCESS;
         }
 
-        Mail::to($recipients)->send(new RequestReport($report, $config));
+        Notifier::send(new RequestReportNotification($report, $config), $recipients);
 
         $this->info(sprintf(
-            'Sent report covering %d failed request(s) to %s.',
-            $report['total'],
-            implode(', ', $recipients)
+            'Sent report covering %d failed request(s).',
+            $report['total']
         ));
 
         $this->maybePrune($config);

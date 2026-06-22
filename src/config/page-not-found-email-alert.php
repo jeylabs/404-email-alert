@@ -16,6 +16,47 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Notification Channels
+    |--------------------------------------------------------------------------
+    |
+    | Where notifications (the instant 404 alert, the digest report and the
+    | spike alerts) are delivered. Email is on by default; the chat channels
+    | post to an incoming webhook URL and are enabled per provider. Slack,
+    | Discord and Teams each accept their incoming-webhook JSON; "webhook" posts
+    | a generic JSON payload to any endpoint you choose.
+    |
+    */
+
+    'channels' => [
+
+        'mail' => [
+            'enabled' => env('PAGE_NOT_FOUND_MAIL_ENABLED', true),
+        ],
+
+        'slack' => [
+            'enabled'     => env('PAGE_NOT_FOUND_SLACK_ENABLED', false),
+            'webhook_url' => env('PAGE_NOT_FOUND_SLACK_WEBHOOK'),
+        ],
+
+        'discord' => [
+            'enabled'     => env('PAGE_NOT_FOUND_DISCORD_ENABLED', false),
+            'webhook_url' => env('PAGE_NOT_FOUND_DISCORD_WEBHOOK'),
+        ],
+
+        'teams' => [
+            'enabled'     => env('PAGE_NOT_FOUND_TEAMS_ENABLED', false),
+            'webhook_url' => env('PAGE_NOT_FOUND_TEAMS_WEBHOOK'),
+        ],
+
+        'webhook' => [
+            'enabled' => env('PAGE_NOT_FOUND_WEBHOOK_ENABLED', false),
+            'url'     => env('PAGE_NOT_FOUND_WEBHOOK_URL'),
+        ],
+
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Recipients
     |--------------------------------------------------------------------------
     |
@@ -108,6 +149,10 @@ return [
 
         // When "statuses" is empty, record any response with a status >= this.
         'minimum_status' => 400,
+
+        // Extra substrings that mark a user agent as a bot, merged with the
+        // built-in list (case-insensitive), e.g. ['mycompany-monitor'].
+        'bot_user_agents' => [],
 
         // Days of history to keep. Used by `page-not-found:report --prune`.
         // Set to 0 to disable pruning.
@@ -312,6 +357,70 @@ return [
         'site_key'   => env('PAGE_NOT_FOUND_RECAPTCHA_SITE_KEY'),
         'secret_key' => env('PAGE_NOT_FOUND_RECAPTCHA_SECRET_KEY'),
         'min_score'  => env('PAGE_NOT_FOUND_RECAPTCHA_MIN_SCORE', 0.5),
+
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Threshold / Spike Alerts
+    |--------------------------------------------------------------------------
+    |
+    | Near-real-time alerts when error volume crosses a threshold — e.g. "more
+    | than 25 server errors in 5 minutes" — to catch an outage or attack as it
+    | happens, rather than waiting for the digest. Rules are evaluated as
+    | requests are recorded (rate-limited by "check_interval") and, when the
+    | monitor command is scheduled, on a fixed cadence too. A per-rule cooldown
+    | prevents repeat emails. Disabled by default — set recipients and tune the
+    | rules for your traffic, then enable.
+    |
+    */
+
+    'alerts' => [
+
+        'enabled' => env('PAGE_NOT_FOUND_ALERTS_ENABLED', false),
+
+        // Recipients. Falls back to report.to, then the alert "to" addresses.
+        'to' => array_values(array_filter(array_map('trim', explode(
+            ',',
+            (string) env('PAGE_NOT_FOUND_ALERTS_TO', '')
+        )))),
+
+        'subject' => env('PAGE_NOT_FOUND_ALERTS_SUBJECT', 'Error spike detected'),
+
+        // Minutes to suppress repeat alerts for the same rule once it fires.
+        'cooldown' => env('PAGE_NOT_FOUND_ALERTS_COOLDOWN', 30),
+
+        // Evaluate as requests come in, throttled so the check runs at most once
+        // per "check_interval" seconds regardless of traffic volume.
+        'realtime' => [
+            'enabled'        => env('PAGE_NOT_FOUND_ALERTS_REALTIME', true),
+            'check_interval' => env('PAGE_NOT_FOUND_ALERTS_INTERVAL', 60),
+        ],
+
+        // Also evaluate on a schedule (reliable even with bursty/low traffic).
+        // Requires Laravel's scheduler to be running.
+        'schedule' => [
+            'enabled' => env('PAGE_NOT_FOUND_ALERTS_SCHEDULE', true),
+            'cron'    => env('PAGE_NOT_FOUND_ALERTS_CRON', '* * * * *'),
+        ],
+
+        // Each rule: name, a status range (min_status/max_status) or explicit
+        // "statuses" list, a "threshold" count and a "window" in minutes.
+        'rules' => [
+            [
+                'name'       => 'Server error spike',
+                'min_status' => 500,
+                'threshold'  => 25,
+                'window'     => 5,
+            ],
+            [
+                'name'       => 'Client error surge',
+                'min_status' => 400,
+                'max_status' => 499,
+                'threshold'  => 200,
+                'window'     => 5,
+            ],
+        ],
 
     ],
 

@@ -6,11 +6,12 @@ use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Cache;
 use Jeylabs\PageNotFoundEmailAlert\Jobs\RecordBadRequest;
-use Jeylabs\PageNotFoundEmailAlert\Mail\PageNotFound;
 use Jeylabs\PageNotFoundEmailAlert\Models\RequestLog;
+use Jeylabs\PageNotFoundEmailAlert\Notifications\Notifier;
+use Jeylabs\PageNotFoundEmailAlert\Notifications\PageNotFoundAlertNotification;
+use Jeylabs\PageNotFoundEmailAlert\Support\UserAgentClassifier;
 use Symfony\Component\HttpFoundation\Response;
 
 class PageNotFoundEmailAlert
@@ -83,13 +84,15 @@ class PageNotFoundEmailAlert
     protected function record(Request $request, $status)
     {
         $attributes = [
-            'status_code' => (int) $status,
-            'method'      => $request->method(),
-            'url'         => $request->fullUrl(),
-            'path'        => $request->path(),
-            'referer'     => $request->headers->get('referer'),
-            'ip'          => $request->ip(),
-            'user_agent'  => $request->userAgent(),
+            'status_code'      => (int) $status,
+            'method'           => $request->method(),
+            'url'              => $request->fullUrl(),
+            'path'             => $request->path(),
+            'referer'          => $request->headers->get('referer'),
+            'ip'               => $request->ip(),
+            'user_agent'       => $request->userAgent(),
+            'is_bot'           => UserAgentClassifier::isBot($request->userAgent()),
+            'referer_internal' => $this->refererInternal($request),
         ];
 
         try {
@@ -104,6 +107,8 @@ class PageNotFoundEmailAlert
             // Synchronous fallback: write inline within the request.
             if (RequestLog::tableExists()) {
                 RequestLog::create($attributes);
+
+                app(\Jeylabs\PageNotFoundEmailAlert\Reporting\ThresholdMonitor::class)->maybeEvaluate();
             }
         } catch (\Throwable $e) {
             Log::error('Failed to record bad request: '.$e->getMessage(), [
@@ -155,7 +160,7 @@ class PageNotFoundEmailAlert
             return false;
         }
 
-        if (empty($config['to'])) {
+        if (! Notifier::hasActiveChannels((array) ($config['to'] ?? []))) {
             return false;
         }
 
@@ -248,14 +253,31 @@ class PageNotFoundEmailAlert
             'timestamp'  => date('Y-m-d H:i:s'),
         ];
 
-        try {
-            Mail::to($config['to'])->send(new PageNotFound($data, $config));
-        } catch (\Throwable $e) {
-            Log::error('Failed to send 404 email alert: '.$e->getMessage(), [
-                'exception' => $e,
-                'url'       => $data['url'],
-            ]);
+        Notifier::send(new PageNotFoundAlertNotification($data, $config), (array) ($config['to'] ?? []));
+    }
+
+    /**
+     * Classify the referer as internal (same host as this request) or external.
+     * Returns null when there is no usable referer (direct traffic).
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return bool|null
+     */
+    protected function refererInternal(Request $request)
+    {
+        $referer = $request->headers->get('referer');
+
+        if (! $referer) {
+            return null;
         }
+
+        $host = parse_url($referer, PHP_URL_HOST);
+
+        if (! $host) {
+            return null;
+        }
+
+        return strtolower($host) === strtolower((string) $request->getHost());
     }
 
     /**

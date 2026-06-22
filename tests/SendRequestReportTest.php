@@ -3,9 +3,9 @@
 namespace Jeylabs\PageNotFoundEmailAlert\Tests;
 
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Mail;
-use Jeylabs\PageNotFoundEmailAlert\Mail\RequestReport;
+use Illuminate\Support\Facades\Notification;
 use Jeylabs\PageNotFoundEmailAlert\Models\RequestLog;
+use Jeylabs\PageNotFoundEmailAlert\Notifications\RequestReportNotification;
 
 class SendRequestReportTest extends TestCase
 {
@@ -31,49 +31,52 @@ class SendRequestReportTest extends TestCase
 
     public function test_it_emails_a_report_with_aggregates()
     {
-        Mail::fake();
+        Notification::fake();
         $this->seedLogs();
 
         $this->artisan('page-not-found:report', ['--to' => ['ops@example.com']])
             ->assertSuccessful();
 
-        Mail::assertSent(RequestReport::class, function ($mail) {
-            $report = $mail->report;
+        Notification::assertSentOnDemand(
+            RequestReportNotification::class,
+            function ($notification, $channels, $notifiable) {
+                $report = $notification->report;
 
-            return $mail->hasTo('ops@example.com')
-                && $report['total'] === 4
-                && $report['client_errors'] === 3
-                && $report['server_errors'] === 1
-                && $report['by_status'][0]['status'] === 404
-                && $report['by_status'][0]['count'] === 3
-                && $report['top_paths'][0]['path'] === 'a';
-        });
+                return in_array('ops@example.com', (array) ($notifiable->routes['mail'] ?? []))
+                    && $report['total'] === 4
+                    && $report['client_errors'] === 3
+                    && $report['server_errors'] === 1
+                    && $report['by_status'][0]['status'] === 404
+                    && $report['by_status'][0]['count'] === 3
+                    && $report['top_paths'][0]['path'] === 'a';
+            }
+        );
     }
 
     public function test_dry_run_renders_to_console_without_sending()
     {
-        Mail::fake();
+        Notification::fake();
         $this->seedLogs();
 
         $this->artisan('page-not-found:report', ['--dry' => true])
             ->expectsOutputToContain('Total: 4')
             ->assertSuccessful();
 
-        Mail::assertNothingSent();
+        Notification::assertNothingSent();
     }
 
     public function test_it_skips_sending_when_there_is_nothing_to_report()
     {
-        Mail::fake();
+        Notification::fake();
 
         $this->artisan('page-not-found:report')->assertSuccessful();
 
-        Mail::assertNothingSent();
+        Notification::assertNothingSent();
     }
 
     public function test_it_excludes_records_outside_the_window()
     {
-        Mail::fake();
+        Notification::fake();
 
         RequestLog::create([
             'status_code' => 404,
@@ -87,12 +90,12 @@ class SendRequestReportTest extends TestCase
 
         $this->artisan('page-not-found:report', ['--hours' => 24])->assertSuccessful();
 
-        Mail::assertNothingSent();
+        Notification::assertNothingSent();
     }
 
     public function test_it_prunes_old_records()
     {
-        Mail::fake();
+        Notification::fake();
         config()->set('page-not-found-email-alert.record.retention_days', 7);
 
         RequestLog::create([
